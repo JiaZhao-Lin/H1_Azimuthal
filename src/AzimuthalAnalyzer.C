@@ -694,6 +694,7 @@ struct MyEvent {
    Int_t nRECtrackAll;
    Int_t nRECtrack;
    Int_t typeChgREC[nRECtrack_MAX];
+   Int_t passREC;
 
    Float_t pxREC[nRECtrack_MAX];
    Float_t pyREC[nRECtrack_MAX];
@@ -954,6 +955,7 @@ int main(int argc, char* argv[]) {
    output->Branch("nRECtrackAll",&myEvent.nRECtrackAll,"nRECtrackAll/I");
    output->Branch("nRECtrack",&myEvent.nRECtrack,"nRECtrack/I");
    output->Branch("typeChgREC",myEvent.typeChgREC,"typeChgREC[nRECtrack]/I");
+   output->Branch("passREC",&myEvent.passREC,"passREC/I");
    
    output->Branch("pxREC",myEvent.pxREC,"pxREC[nRECtrack]/F");
    output->Branch("pyREC",myEvent.pyREC,"pyREC[nRECtrack]/F");
@@ -1057,7 +1059,7 @@ int main(int argc, char* argv[]) {
    int Nselected = 0;
    // Loop over events
    static int print=10;
-   while (gH1Tree->Next() && !opts.IsMaxEvent(eventCounter)) {
+   while (gH1Tree->Next() && !opts.IsMaxEvent(eventCounter)){
 
       // initial settings at the begining of the loop
       if (eventCounter == 0) {
@@ -1080,13 +1082,15 @@ int main(int argc, char* argv[]) {
          // skip runs not in list of good runs
          if(!goodRunList->FindRun(*run)) continue;
          // skip data events with bad detector status
-         if(!detectorStatus->IsOn()) continue;
-         //REC Cut
-         if(!DoBasicCutsRec(fFidVolCut)) continue;
+         if(!detectorStatus->IsOn()) continue;         
       }
 
       // High Q2 cuts
       if(*runtype==1 && !DoBasicCutsGen(fNoRadMC) ) continue;
+
+      //Detector Cut on both Monte Carlos REC and data REC 
+      myEvent.passREC = DoBasicCutsRec(fFidVolCut);
+      if(*runtype!=1 && !myEvent.passREC) continue;
 
       Nselected++;
       myEvent.elecEnergyREC_H1Calc = gH1Calc->Elec()->GetFirstElectron().E();
@@ -1593,6 +1597,27 @@ int main(int argc, char* argv[]) {
       //add energy scale by 0.5%
       // escat0_REC_lab.SetE( 1.005*escat0_REC_lab.E() );
       // escat0_REC_lab.SetPtEtaPhiM(0.995*escat0_REC_lab.Pt(), escat0_REC_lab.Eta(), escat0_REC_lab.Phi(), escat0_REC_lab.M());
+
+
+      //skipping electron that doesn't have a track associated with it
+      if(scatteredElectron>=0) {
+         H1PartEm const *partEM=partCandArray[scatteredElectron]->GetIDElec();
+         if( !(partEM->GetTrType()>0) ) continue;
+         const double TrTheta  = partEM->GetTrTheta();
+         const double TrPhi    = partEM->GetTrPhi();
+         const double E_partEM = partEM->GetE();
+         //option 1
+         // escat0_REC_lab.SetTheta( TrTheta );
+         // escat0_REC_lab.SetPhi  ( TrPhi   );
+
+         //option 2
+         TLorentzVector TempElec;
+         double Temp_pz = sqrt( E_partEM*E_partEM - ME*ME ) * TMath::Cos( TrTheta );
+         double Temp_pt = sqrt( E_partEM*E_partEM - ME*ME - Temp_pz*Temp_pz );
+         double Temp_eta = -TMath::Log( TMath::Tan( TrTheta/2. ) );
+         TempElec.SetPtEtaPhiE(Temp_pt, Temp_eta, TrPhi, E_partEM);
+         escat0_REC_lab = TempElec;
+      }
 
       // add EM particles and neutrals in a cone around the electron 
       TLorentzVector escatPhot_REC_lab(escat0_REC_lab);
@@ -2149,7 +2174,7 @@ int main(int argc, char* argv[]) {
          }
       }
 
-    //add energy scale by 1%
+      //add energy scale by 1%
       // hfs.SetPtEtaPhiM(1.01*hfs.Pt(), hfs.Eta(), hfs.Phi(), hfs.M());
 
       myEvent.hfsPxREC=hfs.X();
